@@ -21,7 +21,7 @@ java -jar ChargeProfessional-3.0.1.jar
 Baud: 38400, 1 Start, 1 Stopbit, 8 Databits, Even parity
 
 Dataframe: <STX 0x02><data><ETX 0x03>
-02/03/05 wird im dataframe durch 0x05 0x1[235] ersetzt!
+02/03/05 is replaced in the dataframe by 0x05 0x1[235] ersetzt!
 
 Channel 02 = 0512 und 03 = 0513.
 ```
@@ -357,7 +357,7 @@ Measure end / 100 = datablock count
 
 ```text
               .           |           .           |           .
-02 70 00 28 00 06 8C A0 1B 58 00 6A CF C0 01 0D AC 00 3C 00 00 A4 78 03 # Messende = 0x00A4 = 164
+02 70 00 28 00 06 8C A0 1B 58 00 6A CF C0 01 0D AC 00 3C 00 00 A4 78 03 # Measure end = 0x00A4 = 164
 02 70 00 28 01 06 AD 70 9C 40 02 62 5A 00 01 4E 20 01 2C 00 01 FC 78 03 # Record end = 0x01FC = 508
 ```
 
@@ -373,44 +373,50 @@ Crazy usage of indexes and address:
 .. and so on ..
 
 
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |   # 10 Logging records / channel
+        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |   # 10 log records/channel
 02 69 00 FF FF 00 00 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # no entries
-02 69 00 00 00 00 00 00 A4 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # first logging
-02 69 00 00 A4 00 00 00 A4 00 D9 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # second
-         ^           |
-         |           |
-         +-----------+
 
-9: Log 11 begins at 0x2B6E, write the last record at last and end at position <end>
+                00 --- 00
+02 69 00|00 00|00 00|00 A4|FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # the first logging
+           ^           ^
+           |           |
+           |           └─ the first log ends at 0x00A4
+           └── set <last> start to 0x0000
+
+
+                      01 -- 01
+                00 -- 00
+02 69 00 00 A4 00 00 00 A4 00 D9 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # the second logging
+           ^           |
+           |           |
+           +-----------+-- last start is now index 00
+
+9: Log 11 begins at 0x2B6E, write the last record to <last> and the new end to <end>
    If <end> != 0000 index 9+ was written.
 
-           +-----------------------------------------------------------------+
-           |   <end>                                                         |
+           +----------------- the last start address ------------------------+
+           |   <end> as new end                                              |
            |     |                                                           |
            v     v                                                           ^
 02 69 00|2B 6E|2B DC|00 A4|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|16 04|16 0F|2B 6E|03
-      |   |    |     |     |     |     |     |     |     |     |     |     |
-      |   |    |     |     |     |     |     |     |     |     |     |     └─ 11118
-      |   |    |     |     |     |     |     |     |     |     |     └─ 5647
-      |   |    |     |     |     |     |     |     |     |     └─ 5636
-      |   |    |     |     |     |     |     |     |     └─ 5195
-      |   |    |     |     |     |     |     |     └─ 3065
-      |   |    |     |     |     |     |     └─ 969
-      |   |    |     |     |     |     └─ 962
-      |   |    |     |     |     |
-      |   |    |     |     |     └─ 508
-      |   |    |     |     └─ 217
-      |   |    |     └─ 164
+      |   |    |      164   217   508   962   069   3065  5195  5636  5647  11118
+      |   |    |
       |   |    └─ end if index 09 in use (11228)
       |   └─ last start address (index 00-09)
    i  └── channel
 
 # If a 12th time is logged, the index from below is overwritten again,
-# Index 00 -> 0x35E5. The end of index 9 in end is written after last as start value.
+# Index 00 -> 0x35E5. The end of index 9 in end is written after last as start value
 # is written. Measurement 11 starts at last and goes to index 00.
 
         |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
-02 69 00 2B DC 2B DC 35 E5 00 D9 01 FC 03 C2 03 C9 0B F9 14 4B 16 04 16 0F 2B 6E 03
+02 69 00|2B DC|2B DC|35 E5|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|16 04|16 0F|2B 6E|03
+        |11228|  |  |13797| 217 | 508 | 962 | 069 | 3065| 5195| 5636| 5647|11110|
+           ^     |     ^
+           |     |     |
+           └──+--+     └── new end
+              └ the new last start is <end>
+              └ in this case index 01 has become worthless
 
 # At the 13th measurement index 01 is written with the new end. The last start value
 # <last> is set to the value from index 00. End remains as end marker for index 09
@@ -418,10 +424,39 @@ Crazy usage of indexes and address:
 
         |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
 02 69 00 35 E5 2B DC 35 E5 36 8E 01 FC 03 C2 03 C9 0B F9 14 4B 16 04 16 0F 2B 6E 03
+           ^           |     ^
+           |           |     |
+           └──--+------+     └── new end
+                └ the new last start is <00>
+                └ <end> is meaningless
+                └ in this case index 02 has become worthless
 
 # When reading, the index with the missing predecessor index is simply ignored.
 # <End> actually marks the end of index 0x10. Thus the missing begin
 # to position 02 can be ignored.
+
+
+        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
+02 69 00|ce e9|7a fd|7f e4|85 09|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
+        |52969|31485|31485|34057|35885|37704|39553|42226|49171|51662|52969|54341|
+           |     |      ^                                              ^
+           |     |      |                                              |
+           |     └─ end +                                              |
+           └── last start ---------------------------------------------+
+
+        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
+02 69 00|dd 86|dd 80|dd 86|85 09|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
+        |56710|56704|56710|34057|35885|37704|39553|42226|49171|51662|52969|54341|
+           |
+           └── last start is now idx 00
+
+        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
+02 69 00|dd 86|dd 80|dd 86|e3 61|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
+        |56710|56704|56710|34057|35885|37704|39553|42226|49171|51662|52969|54341|
+           |                 |
+           |                 └── but index 01 is changed
+           └── last start and end are not modified
+
 ```
 
 #### b (0x62) Getting battery data at log address
@@ -434,9 +469,12 @@ The start of a measurement series starts with 3 data fields where the measured v
 
 ```text
 02 62 00 00 d9 03
+              .           |           .           |           .
 02 62 00 00 D9 28 01 00 00 00 00 00 00 01 06 02 62 5A 00 9C 40 01 06 AD 70 4E 20 01 2C 03
 
+
 02 62|00 14 4b|03
+              .           |           .           |           .
 02 62|00 14 4b|28 01 00 00 00 00 00 00|01 06 00 b7 1b 00 27 10|01 06 2e e0 17 70 00 00 03
       |  |     |  |  |                 |  |  |           |     |  |  |     |     |    
       |  |     |  |  |                 |  |  |           |     |  |  |     |     └─ PauseLE
