@@ -372,36 +372,31 @@ Crazy usage of indexes and address:
 
 .. and so on ..
 
+        |last |start| 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |     # 10 log records/channel
+02 69 00 FF FF 00 00 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03   # no entries
 
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |   # 10 log records/channel
-02 69 00 FF FF 00 00 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # no entries
-
-                00 --- 00
+                00 --- 01
 02 69 00|00 00|00 00|00 A4|FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # the first logging
            ^           ^
            |           |
            |           └─ the first log ends at 0x00A4
-           └── set <last> start to 0x0000
+           └── set <last-start> to 0x0000
 
-
-                      01 -- 01
-                00 -- 00
+                00 -- 01 -- 02
 02 69 00 00 A4 00 00 00 A4 00 D9 FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 03 # the second logging
-           ^           |
-           |           |
-           +-----------+-- last start is now index 00
+         +-+-+       +---+ +---+
+           |           ^
+           |           | last start is now index 00 and so on
+           +-----------+
 
 9: Log 11 begins at 0x2B6E, write the last record to <last> and the new end to <end>
    If <end> != 0000 index 9+ was written.
 
-           +----------------- the last start address ------------------------+
-           |   <end> as new end                                              |
-           |     |                                                           |
-           v     v                                                           ^
 02 69 00|2B 6E|2B DC|00 A4|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|16 04|16 0F|2B 6E|03
-      |   |    |      164   217   508   962   069   3065  5195  5636  5647  11118
+      |  11118 11228  164   217   508   962   069   3065  5195  5636  5647 11118
+      |  +---+ +---+                                                       +---+
       |   |    |
-      |   |    └─ end if index 09 in use (11228)
+      |   |    └─ <start> if index 09 in use
       |   └─ last start address (index 00-09)
    i  └── channel
 
@@ -409,20 +404,20 @@ Crazy usage of indexes and address:
 # Index 00 -> 0x35E5. The end of index 9 in end is written after last as start value
 # is written. Measurement 11 starts at last and goes to index 00.
 
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
+        |last |start| 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
 02 69 00|2B DC|2B DC|35 E5|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|16 04|16 0F|2B 6E|03
         |11228|  |  |13797| 217 | 508 | 962 | 069 | 3065| 5195| 5636| 5647|11110|
            ^     |     ^
            |     |     |
            └──+--+     └── new end
-              └ the new last start is <end>
+              └ the new last start is <start
               └ in this case index 01 has become worthless
 
 # At the 13th measurement index 01 is written with the new end. The last start value
 # <last> is set to the value from index 00. End remains as end marker for index 09
 # remains.
 
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
+        |last |start| 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
 02 69 00 35 E5 2B DC 35 E5 36 8E 01 FC 03 C2 03 C9 0B F9 14 4B 16 04 16 0F 2B 6E 03
            ^           |     ^
            |           |     |
@@ -431,32 +426,9 @@ Crazy usage of indexes and address:
                 └ <end> is meaningless
                 └ in this case index 02 has become worthless
 
-# When reading, the index with the missing predecessor index is simply ignored.
-# <End> actually marks the end of index 0x10. Thus the missing begin
+# When reading, the index with the missing predecessor is simply ignored.
+# <start> actually marks the end of index 0x10. Thus the missing begin
 # to position 02 can be ignored.
-
-
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
-02 69 00|ce e9|7a fd|7f e4|85 09|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
-        |52969|31485|31485|34057|35885|37704|39553|42226|49171|51662|52969|54341|
-           |     |      ^                                              ^
-           |     |      |                                              |
-           |     └─ end +                                              |
-           └── last start ---------------------------------------------+
-
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
-02 69 00|dd 86|dd 80|dd 86|85 09|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
-        |56710|56704|56710|34057|35885|37704|39553|42226|49171|51662|52969|54341|
-           |
-           └── last start is now idx 00
-
-        |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
-02 69 00|dd 86|dd 80|dd 86|e3 61|8c 2d|93 48|9a 81|a4 f2|c0 13|c9 ce|ce e9|d4 45|03
-        |56710|56704|56710|34057|35885|37704|39553|42226|49171|51662|52969|54341|
-           |                 |
-           |                 └── but index 01 is changed
-           └── last start and end are not modified
-
 ```
 
 #### b (0x62) Getting battery data at log address
@@ -468,11 +440,6 @@ The start of a measurement series starts with 3 data fields where the measured v
 - Field 3: Battery type, cell count, discharge current, forming current, pauseLE
 
 ```text
-02 62 00 00 d9 03
-              .           |           .           |           .
-02 62 00 00 D9 28 01 00 00 00 00 00 00 01 06 02 62 5A 00 9C 40 01 06 AD 70 4E 20 01 2C 03
-
-
 02 62|00 14 4b|03
               .           |           .           |           .
 02 62|00 14 4b|28 01 00 00 00 00 00 00|01 06 00 b7 1b 00 27 10|01 06 2e e0 17 70 00 00 03
@@ -508,13 +475,14 @@ These 3 data fields are identical with the data at data block 0
 Logging measured values can only be read block by block.
 To read the values 99 - 101, therefore, 2 blocks of 100 values must be read, block 00 and 01!
 The actual values are read via the index. At the index position is the last value,
-the start value is the previous index value.
+the start value is the value at index-1.
 
 Response: \<Voltage\> \<Current\> \<Capacity\>
 
 ```text
         |last | end | 00  | 01  | 02  | 03  | 04  | 05  | 06  | 07  | 08  | 09  |
-02 69 00|0B F9|00 00|00 A4|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|FF FF|FF FF|FF FF|03:
+02 69 00|0B F9|00 00|00 A4|00 D9|01 FC|03 C2|03 C9|0B F9|14 4B|FF FF|FF FF|FF FF|03
+              |-->  | 164 | 217 | 508 | 962 | 969 | 3065| 5195|
 
 Index 0:  159 values, Start:   3 End: 163 -> 02 76 00 00 00 03 ... 02 76 00 00 01 03 ( 2 blocks)
 Index 1:   48 values, Start: 167 End: 216 -> 02 76 00 00 01 03 ... 02 76 00 00 02 03 ( 2 blocks)
@@ -533,8 +501,8 @@ Index 6: 2126 values, Start:3068 End:5195 -> 02 76 00 00 1e 03 ... 02 76 00 00 3
 144b - bf9 = 852 (2130)
 
 02 76 00 00 02 03
-      |  |
-      |  └── Datablock
+      |  +---+
+      |    └── Datablock address
    t  └── Channel
 
 02 76 00 00 02

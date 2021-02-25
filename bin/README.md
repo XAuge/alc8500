@@ -12,7 +12,6 @@
 
 ```python
 import alc8500
-from time import sleep
 
 # initialize USB serial interface and getting system information
 alc = alc8500.alc8500(debug=True)
@@ -28,6 +27,9 @@ import json
 alc.read_db()
 db = alc.get_data(alc.db)
 print(json.dumps(db,sort_keys=True,indent=2))
+
+#or:
+alc.dump_data(alc.db)
 ```
 
 ##### Getting channel parameter/status
@@ -45,6 +47,8 @@ for i in range(1,5):
 ##### Read actual channel values
 
 ```python
+from time import sleep
+
 while True:
   data = alc.get_ch_values(1)
   print(data)
@@ -61,15 +65,21 @@ alc.ch_start(2)
 ##### Getting log entries for channel
 
 ```python
-# read all log entries for specified port
-alc.get_ch_logs(1)
+# read all log entries for specified port:
+for i in range(1,5):
+  alc.get_ch_logs(i)
+
+# export logging indexes as json
 alc.dump_data(alc.log)
 
-# get single log entry metadata
-alc.get_ch_log(1,37704)
+# get all logging values for port at index
+data = alc.get_log(1,0)
 
-# get single logging data block
-alc.get_block(1,2)
+# dumping logging data:
+print(alc.hexdump(data))
+
+# or export as csv:
+alc.print_log_values(data)
 
 ```
 

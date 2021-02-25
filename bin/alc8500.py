@@ -45,6 +45,17 @@ class alc8500:
     ''' print object data as json '''
     print(json.dumps(vars(dump),sort_keys=True,indent=2))
 
+  def hexdump(self, src, length=16):
+    ''' print hex/ascii dump '''
+    FILTER = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
+    lines = []
+    for c in range(0, len(src), length):
+      chars = [ chr(i) for i in src[c:c+length]]
+      hex = ' '.join(["%02x" % ord(x) for x in chars])
+      printable = ''.join(["%s" % ((ord(x) <= 127 and FILTER[ord(x)]) or '.') for x in chars])
+      lines.append("%04x  %-*s  %s\n" % (c, length*3, hex, printable))
+    return ''.join(lines)
+
   def get_data(self,dump):
     ''' return object data as json '''
     return vars(dump)
@@ -56,8 +67,8 @@ class alc8500:
 
   def in_conv(self,data):
     ''' convert/extract response data '''
-    x = data.replace(b'\x05\x15',b'\05').\
-      replace(b'\x05\x12',b'\02').replace(b'\x05\x13',b'\03')
+    x = data.replace(b'\x05\x12',b'\02').\
+      replace(b'\x05\x13',b'\03').replace(b'\x05\x15',b'\05')
     return x[1:len(x)-1]
 
   def out_conv(self,data):
@@ -84,13 +95,18 @@ class alc8500:
     while not i:
       sleep(0.2)
       i = self.alc.in_waiting  # bytes in buffer
-      response += self.alc.read(i)
-      if response[-1] != 3:    # waiting for final 0x03
-        i = 0
+      if i > 0:
+        response += self.alc.read(i)
+        if response[-1] != 3:    # waiting for final 0x03
+          i = 0
     conv = self.in_conv(response)
     if self.debug:
-      print("# Request: 0x" + " 0x".join(re.findall('..',request[1:-1].hex())))
-      print("# Response: 0x" + " 0x".join(re.findall('..',conv.hex())))
+      print('# Request:')
+      print(self.hexdump(request))
+      #print('# RAW-Response:')
+      #print(self.hexdump(response))
+      print('# Response:')
+      print(self.hexdump(conv))
     return conv
 
   def sysinfo(self):
@@ -126,6 +142,7 @@ class alc8500:
         if o[11] != 255:
           data = {
             'name': str(o[2:11].decode("utf-8")),
+            'number': o[1],
             'accu_type': AKKU_TYPE[o[11]],
             'cells': int(o[12]),
             'capacity_mAh': struct.unpack('>i', o[13:17])[0] / 10000,
@@ -290,46 +307,100 @@ class alc8500:
         }
         return data
 
-  def get_block(self,port,block):
-    ''' Getting logging block, block = 0..650 '''
+  def get_log(self,port,log):
+    ''' Extract logging data '''
     if self._isport(port):
-      o = self.send(GET_LOG_BLK,port-1,struct.pack(">H",block))
+      values = b''
+      logs = vars(self.log)
+      idx = logs['port_'+str(port)][str(log)]
+      print(json.dumps(idx,sort_keys=True,indent=2))
+      start = divmod(idx['log_start'],100)
+      end = divmod(idx['log_end'],100)
+      print("Read block {}..{} index {},{}".format(start[0],end[0],start[1],end[1]))
+      # reading the first data block (100 bytes) whithout 4 byte response header
+      o = self.send(GET_LOG_BLK,port-1,struct.pack(">H",start[0]))
+      # the first block at address 0 contains 24 byte accu information:
+      o = o[4:] if start[0] else o[28:]
+      # note the shift of the start value
+      values = o[start[1]*8:] if start[1] else o
+      for i in range(start[0]+1,end[0]):
+        print("# Reading block ",i,len(values))
+        o = self.send(GET_LOG_BLK,port-1,struct.pack(">H",i))[4:]
+        values = values + o
+      # ignore the values outside the index range
+      values = values[:-(100-end[1])*8] if end[1] else values
+      return values
+
+  def print_log_values(self,log):
+    ''' print logging values '''
+    print("Volt;mA;mAh;")
+    for i in range(0, len(log),8):
+      v = log[i:i+8]
+      print("{:0.02f};{:0.02f};{:0.04f};".format(
+        float(struct.unpack(">H", v[0:2])[0])/1000,   # V
+        float(struct.unpack(">H", v[2:4])[0])/10,     # mA
+        float(struct.unpack('>i', v[4:8])[0])/10000   # mAh
+      ))
 
   def get_ch_log(self,port,addr):
-    ''' Getting battery and function data from log entry '''
+    ''' Getting battery and function data from log entry
+    b <port> <word-addr> '''
     if self._isport(port):
-      o = self.send(GET_CH_LOG,port-1,addr)
+      o = self.send(GET_CH_LOG,port-1,struct.pack(">H",addr))
+      if (chr(o[0]) == 'b') and (o[5] <= len(CH_FUNCTION)):
+        data = {
+          'port': port,
+          'address': struct.unpack(">H", o[2:4])[0],
+          'accu_number': o[4],
+          'func': CH_FUNCTION[o[5]],
+          'accu_type': AKKU_TYPE[o[12]],
+          'cells': o[13],
+          'capacity': int(round(struct.unpack('>i', o[14:18])[0] / 10000)),
+          'charge_mA': int(round(struct.unpack(">H", o[18:20])[0]/10)),
+          'discharge_mA': int(round(struct.unpack(">H", o[22:24])[0]/10)),
+          'form_charge_mA': int(round(struct.unpack(">H", o[24:26])[0] / 60)),
+          'delay_cd_60sec': struct.unpack(">H", o[26:28])[0] / 60
+        }
+      else:
+        data = {
+          'port': port,
+          'func': 'unknown'
+        }
+      return data
 
   def get_ch_logs(self,port):
-    ''' getting log addresses/blocks for selected port
+    ''' getting log block addresses for selected port
     i <portnumber>  '''
     if self._isport(port):
       o = self.send(GET_LOG_IDX,port-1)
-      print(o)
       if chr(o[0]) == 'i':
+        port_name = 'port_'+str(port)
         addrs = [ int(i,16) for i in re.findall('....',str(hexlify(o[2:]),'ascii')) ]
-        addrs[:] = (i for i in addrs if i != 65535) # remove unused
         last = addrs[0]
-        if len(addrs) == 12:
-          idx = addrs[1:].index(last) +3
-          if idx < 8:
-            addrs[:] = addrs[idx:] + addrs[1:idx]
-            self.log.addrs = { 'addrs': addrs }
-            for i in range(len(addrs)-1):
-              size = addrs[i+1] - addrs[i]
-              blk = divmod(size,100)
-              data = {
-                  'size': size,
-                  'addr': addrs[i],
-                  'blks': blk[0],
-                  'leftover': blk[1]
-              }
-              setattr(self.log,str(i),data)
-              print(addrs[i],size)
-          # if idx = 9 move <end> to end of list and delete index 00
-        else:
-          pass
-        print(addrs)
+        # remove unused index values and last start value at pos 0
+        addrs[:] = (i for i in addrs[1:] if i != 65535)
+        if len(addrs) > 1:
+          idx = addrs.index(last)
+          addrs[:] = addrs[idx:] + addrs[:idx]
+          if len(addrs) > 2:
+            addrs[:] = addrs[2:] + addrs[:2]
+          setattr(self.log,port_name,{ 'addrs': addrs })
+          ptr = getattr(self.log,port_name)
+          x = 0
+          for i in range(len(addrs)-1,0,-1):
+            size = addrs[i] - addrs[i-1]
+            data = self.get_ch_log(port,addrs[i-1])
+            data['log_start'] = addrs[i-1]
+            data['log_end'] = addrs[i]
+            ptr[str(x)] = data
+            x += 1
+
+  def clear_logs(self,port):
+    ''' clear all logs per channel
+    L <port number> '''
+    if self._isport(port):
+      o = self.send(DEL_CH_LOG,port-1)
+      return True if chr(o[0]) == 'l' else False
 
   def ch_stop(self,port):
     if self._isport(port):
